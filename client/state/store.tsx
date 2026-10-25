@@ -510,6 +510,9 @@ function useCreateActions(
       const publish = (options: PlanOption[], intro: string, meta?: PlanMeta) => {
         const summary = meta
           ? `\nChecked ${meta.checked} ideas with ${meta.agents} private agents · ${meta.passed} fit everyone` +
+            (meta.with?.length
+              ? ` · every option works for ${meta.with.map((id) => SEED_PEOPLE[id as PersonId]?.name ?? id).join(" and ")}`
+              : "") +
             (meta.reinclude
               ? ` · shaped around ${meta.reinclude === 1 ? "someone" : `${meta.reinclude} people`} who’s missed a few lately`
               : "")

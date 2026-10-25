@@ -9,7 +9,7 @@ import {
 import { Link, useNavigate, useSearchParams } from "react-router"
 import { lockedOption, votedCount } from "../agent/planner"
 import { GROUP, ME, PEOPLE_ORDER, TODAY } from "../data/seed"
-import { drifters, onThisDay } from "@/lib/fgl/rekindle"
+import { drifters, onThisDay, reconnectFor, type Reconnect } from "@/lib/fgl/rekindle"
 import { fmtShort } from "../lib/dates"
 import { nameOf } from "../agent/text"
 import type { LorePiece, PersonId, Plan, Tint } from "../data/types"
@@ -33,7 +33,7 @@ type Tile = { kind: "cluster"; cluster: Cluster } | {
 } | { kind: "cta" } | { kind: "free"; id: string } | {
   kind: "onthisday"
   piece: LorePiece
-} | { kind: "spot" } | { kind: "drafts" }
+} | { kind: "spot" } | { kind: "drafts" } | { kind: "nudge"; r: Reconnect }
 
 /** Rough heights so tiles can be dealt into two columns, row by row, like the board comp. */
 const estimate = (t: Tile) => {
@@ -41,6 +41,7 @@ const estimate = (t: Tile) => {
   if (t.kind === "plan" || t.kind === "cta" || t.kind === "spot") return 170
   if (t.kind === "onthisday") return 250
   if (t.kind === "drafts") return 200
+  if (t.kind === "nudge") return 430
   const n = Math.min(t.cluster.pieces.length, 6) || 1
   return 48 + Math.ceil(n / 2) * 104
 }
@@ -59,7 +60,7 @@ function masonry(tiles: Tile[]) {
 export function Board() {
   const [params, setParams] = useSearchParams()
   const navigate = useNavigate()
-  const { lore, plans, areas, people, highlight } = useStore()
+  const { lore, plans, areas, people, profiles, highlight } = useStore()
   const { clearHighlight } = useActions()
   const lens = (LENSES.find((l) => l.id === params.get("by"))?.id ??
     "activity") as Lens
@@ -118,7 +119,18 @@ export function Board() {
     (c) => lens !== "people" || who.length === 0 || c.pieces.length,
   )
   const tiles: Tile[] = []
-  // Rekindler: a memory from this day in an earlier year, and (only for you) a saved spot.
+  // Rekindler, privately: the friend you've gone longest without, through a moment you share.
+  const reconnect = useMemo(
+    () =>
+      reconnectFor(
+        lore,
+        ME,
+        Object.fromEntries(Object.entries(profiles).map(([id, p]) => [id, p?.hobbies ?? []])),
+      ),
+    [lore, profiles],
+  )
+  if (reconnect) tiles.push({ kind: "nudge", r: reconnect })
+  // A memory from this day in an earlier year, and (only for you) a saved spot.
   onThisDay(lore).slice(0, 1).forEach((piece) => tiles.push({ kind: "onthisday", piece }))
   if (drifters(lore).some((d) => d.person === ME) && open.length) tiles.push({ kind: "spot" })
   if (open.length) open.forEach((plan) => tiles.push({ kind: "plan", plan }))
@@ -127,7 +139,9 @@ export function Board() {
   const hubCols = masonry(tiles)
 
   const renderTile = (t: Tile) =>
-    t.kind === "plan" ? (
+    t.kind === "nudge" ? (
+      <ReconnectCard key={`nudge-${t.r.friend}`} r={t.r} />
+    ) : t.kind === "plan" ? (
       <PlanCard key={t.plan.id} plan={t.plan} />
     ) : t.kind === "cta" ? (
       <PlanPrompt key="cta" />
@@ -598,6 +612,87 @@ function ScribeDrafts({ drafts, onDone }: { drafts: Draft[]; onDone: (id: string
 }
 
 /** Only the re-included person sees this, in their own book. Nobody else knows. */
+/** Private to the person viewing: built only from moments the two of them already share. */
+function ReconnectCard({ r }: { r: Reconnect }) {
+  const { people, areas } = useStore()
+  const key = `fgl:nudge:${TODAY}:${ME}:${r.friend}`
+  const [hidden, setHidden] = useState(() => {
+    try {
+      return localStorage.getItem(key) === "1"
+    } catch {
+      return false
+    }
+  })
+  if (hidden) return null
+  const friend = people[r.friend]
+  const m = r.memory
+  const quote = m.quotes.find((q) => q.by === r.friend) ?? m.quotes[0]
+  const when =
+    r.why === "anniversary" ? "one year ago today" : r.why === "last" ? "last time" : relativeDays(m.date, TODAY)
+  const chips = [
+    `${r.together} hangouts together`,
+    r.topArea ? `${areas[r.topArea.area]?.label ?? r.topArea.area} ×${r.topArea.count} together` : null,
+    r.sharedHobbies[0] ? `you both love ${r.sharedHobbies[0].toLowerCase()}` : null,
+  ].filter(Boolean) as string[]
+  return (
+    <article data-nudge className="relative animate-pop-in rounded-[22px] border-2 border-dashed border-plezi bg-agent p-3">
+      <p className="flex items-center gap-1 text-[11px] font-extrabold uppercase tracking-[0.04em] text-ink">
+        <Icon name="lock" size={13} /> For you · only you see this
+      </p>
+      <p className="mt-1.5 text-[16px] font-extrabold leading-[1.15] text-ink">
+        You and {friend.name} haven’t hung out in {r.days} days
+      </p>
+      <Link
+        to={`/lore/${m.id}`}
+        className="mt-2.5 block -rotate-[1.5deg] rounded-xl border-[1.5px] border-ink bg-white p-1.5 pb-1 transition-transform hover:rotate-0"
+      >
+        <Photo
+          src={m.photos[0]}
+          alt=""
+          tint={(areas[m.area]?.tint ?? "yellow") as Tint}
+          label={m.title}
+          className="aspect-[4/3] w-full rounded-lg"
+        />
+        <span className="mt-1 block font-display text-[16px] font-bold leading-tight text-ink">
+          {when} · {m.title}
+        </span>
+      </Link>
+      {quote ? (
+        <p className="mt-2 font-display text-[17px] leading-tight text-ink">
+          “{quote.text}” <span className="text-muted">— {nameOf(quote.by)}</span>
+        </p>
+      ) : null}
+      <div className="mt-2 flex flex-wrap gap-1">
+        {chips.map((c) => (
+          <span key={c} className="rounded-full border-[1.5px] border-dashed border-plezi bg-white px-2 py-0.5 text-[11.5px] font-semibold text-ink">
+            {c}
+          </span>
+        ))}
+      </div>
+      <Link
+        to={`/keeper?with=${r.friend}`}
+        className="mt-2.5 flex h-9 w-full items-center justify-center whitespace-nowrap rounded-[10px] bg-ink px-2 text-[13.5px] font-bold text-white"
+      >
+        Plan something with {friend.name}
+      </Link>
+      <button
+        type="button"
+        onClick={() => {
+          try {
+            localStorage.setItem(key, "1")
+          } catch {
+            /* private mode */
+          }
+          setHidden(true)
+        }}
+        className="mt-0.5 h-7 w-full text-[12px] font-semibold text-muted underline"
+      >
+        Not now
+      </button>
+    </article>
+  )
+}
+
 function SavedSpot() {
   return (
     <Link to="/me/agent" className="block animate-pop-in rounded-[22px] border-2 border-dashed border-plezi bg-agent p-3">

@@ -1,6 +1,6 @@
 import { answerLocally } from "@/client/agent/loreAgent"
 import { AREA_HINTS, MAJORITY, sameActivity, toOption } from "@/client/agent/planner"
-import { AREAS, GROUP, TODAY, VENUES, type Venue } from "@/client/data/seed"
+import { AREAS, GROUP, PEOPLE_ORDER, SEED_PEOPLE, TODAY, VENUES, type Venue } from "@/client/data/seed"
 import type { Day, LorePiece, PlanOption } from "@/client/data/types"
 import { dayName } from "@/client/lib/dates"
 import { sql } from "@/lib/server/db"
@@ -87,7 +87,10 @@ export async function planOptions(groupId: string, request: string, sourceLoreId
   // Rekindler: anyone who has missed most recent hangouts must be able to come to every option.
   const drift = drifters(lore).map((d) => d.person)
   const driftHeld = held.filter((h) => drift.includes(h.person))
-  const worksForDrifters = (day: Day) => driftHeld.every((h) => isFree(h, day))
+  // “…with Sam”: a friend named in the request has to be able to come to every option too.
+  const withPeople = PEOPLE_ORDER.filter((id) => new RegExp(`\\b${SEED_PEOPLE[id].name}\\b`, "i").test(request))
+  const mustHeld = held.filter((h) => drift.includes(h.person) || withPeople.includes(h.person))
+  const worksForDrifters = (day: Day) => mustHeld.every((h) => isFree(h, day))
   const fitsAll = pool.filter(({ o }) => fitById[o.id].fitsEveryone)
   let passing = fitsAll.filter(({ o }) => avail[o.day] >= MAJORITY && worksForDrifters(o.day))
   if (passing.length < 3) passing = fitsAll.filter(({ o }) => avail[o.day] >= MAJORITY) // never strand the plan
@@ -126,6 +129,7 @@ export async function planOptions(groupId: string, request: string, sourceLoreId
     windows,
     reinclude: driftHeld.length,
     askedOn: TODAY,
+    ...(withPeople.length ? { with: withPeople } : {}),
   }
   if (driftHeld.length && picks.length) await saveSpot(groupId, driftHeld.map((h) => h.person))
   return {

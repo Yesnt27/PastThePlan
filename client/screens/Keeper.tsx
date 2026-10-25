@@ -33,18 +33,21 @@ export function Keeper() {
   const againId = params.get("again")
   const againPiece = againId ? lore.find((p) => p.id === againId) : undefined
   const compose = params.get("compose")
+  // A reconnect nudge arrives as ?with=<person>: “Something this weekend with Sam”.
+  const withId = params.get("with")
+  const withName = withId ? people[withId as keyof typeof people]?.name : undefined
   const [context, setContext] = useState<string | undefined>(againPiece?.id)
   const [text, setText] = useState(() =>
-    againPiece ? `Do ${againPiece.title} again` : "",
+    againPiece ? `Do ${againPiece.title} again` : withName ? `Something this weekend with ${withName}` : "",
   )
   useEffect(() => {
     if (againPiece) {
       setContext(againPiece.id)
       setText(`Do ${againPiece.title} again`)
-    }
-    if (againPiece || compose) input.current?.focus()
+    } else if (withName) setText(`Something this weekend with ${withName}`)
+    if (againPiece || compose || withName) input.current?.focus()
     // Only when a new request arrives through the URL.
-  }, [againId, compose]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [againId, compose, withId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const contextPiece = context ? lore.find((p) => p.id === context) : undefined
   const plan = activePlan(plans)
@@ -60,7 +63,7 @@ export function Keeper() {
     actions.sendKeeper(value, { sourceLoreId: context })
     setText("")
     setContext(undefined)
-    if (againId || compose) clearParams("again", "compose")
+    if (againId || compose || withId) clearParams("again", "compose", "with")
   }
 
   const pick = (chip: string) => {

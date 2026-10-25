@@ -101,6 +101,8 @@ export type PlanMeta = {
   windows: { day: Day; free: number }[]
   /** How many people the plan was shaped around because they've missed recent hangouts. Never who. */
   reinclude: number
+  /** Friends named in the request (“…with Sam”); every option had to work for them too. */
+  with?: string[]
   requestedBy?: string
   askedOn?: string
 }
