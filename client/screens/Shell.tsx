@@ -141,14 +141,14 @@ export function Shell() {
         <header className="relative z-20 flex shrink-0 items-center justify-between pb-2 pl-6 pr-4 pt-4">
           <Link
             to="/book"
-            aria-label="Friend Group Lore — open the book"
-            title="Friend Group Lore"
+            aria-label="PastThePlan — open the book"
+            title="PastThePlan"
             className="block rounded-md"
           >
             <img
               src={art.logo}
               alt=""
-              className="h-[38px] w-[31px]"
+              className="h-[38px] w-[31px] object-contain"
               draggable={false}
             />
           </Link>

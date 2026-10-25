@@ -79,7 +79,7 @@ export function Keeper() {
         badge="Discord"
         back="Back to the board"
         onBack={() => navigate("/board")}
-        avatar={<img src={art.logo} alt="" className="h-[26px] w-[21px]" />}
+        avatar={<img src={art.logo} alt="" className="h-[26px] w-[21px] object-contain" />}
         title="Lore Keeper"
         subtitle={`Group agent · ${people[ME]?.name ?? "your"}’s chat`}
       />

@@ -7,7 +7,7 @@ export const photo = (name: string) => asset(`assets/photos/${name}.jpg`)
 /** Icons and art exported from the Figma comps. File names are the export hashes; keep them as-is. */
 export const art = {
   // 01 Book – closed (Talent Design Comp)
-  logo: asset("assets/book/ca89a.svg"),
+  logo: asset("assets/brand/ptp-logo.png"), // PastThePlan mark (was assets/book/ca89a.svg)
   plusGlyph: asset("assets/book/96930.svg"),
   filterButton: asset("assets/book/24adb.svg"),
   backButton: asset("assets/book/e4edc.svg"),
