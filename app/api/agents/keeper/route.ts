@@ -7,12 +7,13 @@ export const dynamic = "force-dynamic"
 export const maxDuration = 60
 
 export async function POST(req: Request) {
-  const { text, sourceLoreId } = (await req.json()) as { text?: string; sourceLoreId?: string }
+  const { text, sourceLoreId, model } = (await req.json()) as { text?: string; sourceLoreId?: string; model?: string }
+  const admin = !!process.env.FGL_ADMIN_SECRET && req.headers.get("x-admin-secret") === process.env.FGL_ADMIN_SECRET
   if (!text?.trim()) return NextResponse.json({ error: "text required" }, { status: 400 })
   const me = await currentPerson()
   const base = process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : new URL(req.url).origin
   try {
-    const reply = await runKeeper({ text: text.slice(0, 500), sourceLoreId, me, base })
+    const reply = await runKeeper({ text: text.slice(0, 500), sourceLoreId, me, base, model: admin ? model : undefined })
     // Every group-visible sentence passes the leak check before it leaves the server.
     if (leaks(reply.text)) reply.text = "Here’s what fits everyone this time. I checked calendars and everyone’s private limits; the details stay private."
     return NextResponse.json(reply)

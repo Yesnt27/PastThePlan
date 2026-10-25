@@ -57,13 +57,13 @@ export type KeeperReply = {
   toolCalls: string[]
 }
 
-export async function runKeeper(input: { text: string; sourceLoreId?: string; me: string; base: string }): Promise<KeeperReply> {
+export async function runKeeper(input: { text: string; sourceLoreId?: string; me: string; base: string; model?: string }): Promise<KeeperReply> {
   const token = process.env.FGL_MCP_SERVICE_TOKEN
   const remote = token && process.env.AGENT_TOOLS !== "local" ? await mcpTools(input.base, token) : null
   const tools = remote?.tools ?? localTools()
   try {
     const res = await generateText({
-      model: SMART,
+      model: input.model || SMART,
       system: SYSTEM,
       prompt: `${input.me} says: ${input.text}${input.sourceLoreId ? `\n(Context: they started from lore piece id "${input.sourceLoreId}".)` : ""}`,
       tools,
