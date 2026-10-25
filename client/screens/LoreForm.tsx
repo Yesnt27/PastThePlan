@@ -18,6 +18,7 @@ import { ME, PEOPLE_ORDER, TODAY } from "../data/seed"
 import type { PersonId, Quote } from "../data/types"
 import { fmtWithDay } from "../lib/dates"
 import { useActions, useStore, type LoreDraft } from "../state/store"
+import { uploadPhoto } from "../state/sync"
 import { Icon } from "../ui/Icon"
 import {
   AgentBox,
@@ -152,12 +153,18 @@ export function LoreForm({ mode }: { mode: "new" | "edit" }) {
     )
 
   const addPhotos = (e: ChangeEvent<HTMLInputElement>) => {
-    const urls = [...(e.target.files ?? [])]
-      .filter((f) => f.type.startsWith("image/"))
-      .map((f) => URL.createObjectURL(f))
-    created.current.push(...urls)
-    set("photos", [...draft.photos, ...urls])
+    const files = [...(e.target.files ?? [])].filter((f) => f.type.startsWith("image/"))
     e.target.value = ""
+    // Show each photo right away, then swap in its stored URL once the upload finishes.
+    for (const f of files) {
+      const local = URL.createObjectURL(f)
+      created.current.push(local)
+      setDraft((d) => ({ ...d, photos: [...d.photos, local] }))
+      void uploadPhoto(f).then((remote) => {
+        if (remote)
+          setDraft((d) => ({ ...d, photos: d.photos.map((p) => (p === local ? remote : p)) }))
+      })
+    }
   }
   const removePhoto = (src: string) => {
     if (created.current.includes(src)) URL.revokeObjectURL(src)

@@ -20,7 +20,11 @@ import type {
 
 /** Demo clock. Matches the frames: next Saturday (Oct 31) is "in 7 days". */
 export const TODAY = "2026-10-24"
-export const ME: PersonId = "john"
+export let ME: PersonId = "john"
+/** Switches who this browser acts as (see client/identity.ts). */
+export function setMe(id: PersonId) {
+  ME = id
+}
 export const GROUP = { name: "The Wizards Pit", size: 6 }
 
 /** Name-tag creatures from "01 Book – closed", in the swatch order used by "My puzzle piece". */

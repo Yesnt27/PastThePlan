@@ -25,7 +25,7 @@ import { Sheet } from "../ui/Sheet"
 export function Keeper() {
   const [params, setParams] = useSearchParams()
   const navigate = useNavigate()
-  const { keeper, keeperBusy, plans, lore } = useStore()
+  const { keeper, keeperBusy, plans, lore, people } = useStore()
   const actions = useActions()
   const input = useRef<HTMLInputElement>(null)
 
@@ -81,7 +81,7 @@ export function Keeper() {
         onBack={() => navigate("/board")}
         avatar={<img src={art.logo} alt="" className="h-[26px] w-[21px]" />}
         title="Lore Keeper"
-        subtitle="Group agent · John’s chat"
+        subtitle={`Group agent · ${people[ME]?.name ?? "your"}’s chat`}
       />
       <Thread
         label="Lore Keeper conversation"

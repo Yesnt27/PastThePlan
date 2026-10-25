@@ -11,7 +11,7 @@ import {
   type RefObject,
 } from "react"
 import { answerLocally, loreAgent } from "../agent/loreAgent"
-import { fitsPrivateLimits, memberAgentReply } from "../agent/memberAgent"
+import { EMPTY_LIMITS, fitsPrivateLimits, memberAgentReply } from "../agent/memberAgent"
 import {
   draftOptions,
   EARLY_VOTERS,
@@ -25,6 +25,7 @@ import {
   votedCount,
 } from "../agent/planner"
 import { listNames } from "../agent/text"
+import { startSync, syncAction } from "./sync"
 import {
   AREAS,
   GROUP,
@@ -85,10 +86,10 @@ const initialState: State = {
   lore: SEED_LORE,
   plans: [],
   keeper: SEED_KEEPER_THREAD,
-  agent: SEED_AGENT_THREAD,
+  agent: ME === "john" ? SEED_AGENT_THREAD : [],
   keeperBusy: null,
   agentBusy: false,
-  limits: SEED_LIMITS,
+  limits: ME === "john" ? SEED_LIMITS : EMPTY_LIMITS,
   people: SEED_PEOPLE,
   profiles: SEED_PROFILES,
   areas: AREAS,
@@ -130,7 +131,7 @@ type Action = { type: "keeper/push"; messages: ChatMessage[] } | {
 } | { type: "ask/answer"; id: string; answer: LoreAnswer } | {
   type: "highlight"
   id?: string
-} | { type: "notice"; text?: string }
+} | { type: "notice"; text?: string } | { type: "hydrate"; snap: Partial<State> }
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -210,6 +211,20 @@ function reducer(state: State, action: Action): State {
       }
     case "highlight":
       return { ...state, highlight: action.id }
+    case "hydrate": {
+      const s = action.snap
+      return {
+        ...state,
+        lore: s.lore ?? state.lore,
+        plans: s.plans ?? state.plans,
+        keeper: s.keeper ?? state.keeper,
+        agent: s.agent ?? state.agent,
+        limits: s.limits ?? state.limits,
+        people: s.people ?? state.people,
+        profiles: s.profiles ?? state.profiles,
+        areas: s.areas ?? state.areas,
+      }
+    }
     case "notice":
       return {
         ...state,
@@ -306,7 +321,16 @@ const StateContext = createContext<State | null>(null)
 const ActionsContext = createContext<Actions | null>(null)
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, initialState)
+  const [state, rawDispatch] = useReducer(reducer, initialState)
+  // Every shared change is also posted to the server; snapshots from the server replace the shared slices.
+  const dispatch = useCallback((a: Action) => {
+    rawDispatch(a)
+    syncAction(a)
+  }, [])
+  useEffect(
+    () => startSync((snap) => rawDispatch({ type: "hydrate", snap: snap as Partial<State> })),
+    [],
+  )
   const stateRef = useRef(state)
   stateRef.current = state
   const actions = useCreateActions(dispatch, stateRef)
@@ -392,7 +416,7 @@ function useCreateActions(
     }
 
     function scheduleLateVotes(planId: string) {
-      for (const { person, strategy, delayMs } of LATE_VOTERS) {
+      for (const { person, strategy, delayMs } of LATE_VOTERS.filter((v) => v.person !== ME)) {
         later(delayMs, () => {
           const plan = planById(planId)
           if (!plan || plan.status !== "voting" || plan.votes[person]) return
@@ -462,10 +486,11 @@ function useCreateActions(
             `Vote invites sent in FGL to ${listNames(PEOPLE_ORDER.filter((id) => id !== ME))}`,
           ),
         )
-        EARLY_VOTERS.forEach((person, i) =>
+        EARLY_VOTERS.filter((p) => p !== ME).forEach((person, i) =>
           later(2600 + i * 2200, () => {
             const p = planById(plan.id)
-            if (p?.options[0]) recordVote(plan.id, person, p.options[0].id)
+            if (p?.options[0] && !p.votes[person])
+              recordVote(plan.id, person, p.options[0].id)
           }),
         )
       })

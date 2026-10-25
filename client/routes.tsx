@@ -9,6 +9,20 @@ import { MyAgent } from "./screens/MyAgent"
 import { NotFound, RouteError } from "./screens/NotFound"
 import { Profile, ProfileEdit } from "./screens/Profile"
 import { Shell } from "./screens/Shell"
+import { useEffect } from "react"
+import { useParams } from "react-router"
+import { PEOPLE_ORDER } from "./data/seed"
+import { actAs } from "./identity"
+
+/** /as/sam: act as another member of the demo group (full reload so the store starts fresh). */
+function ActAs() {
+  const { id } = useParams()
+  useEffect(() => {
+    if (id && PEOPLE_ORDER.includes(id)) actAs(id)
+    window.location.replace("/board")
+  }, [id])
+  return null
+}
 
 const basename = "/"
 
@@ -38,6 +52,7 @@ export const router = createBrowserRouter(
         { path: "me/edit", Component: ProfileEdit },
         { path: "me/agent", Component: MyAgent },
         { path: "people/:id", Component: Profile },
+        { path: "as/:id", Component: ActAs },
         { path: "*", Component: NotFound },
       ],
     },

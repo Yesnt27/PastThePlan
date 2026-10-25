@@ -1,3 +1,4 @@
+import "./identity"
 import { RouterProvider } from "react-router"
 import { router } from "./routes"
 import { StoreProvider } from "./state/store"
