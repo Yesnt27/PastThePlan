@@ -193,7 +193,7 @@ function Message({
     return (
       <div className="flex animate-pop-in">
         <ButtonLink to="/board" tone="secondary">
-          See it on your board in FGL →
+          See it on your board →
         </ButtonLink>
       </div>
     )

@@ -530,7 +530,7 @@ function useCreateActions(
           ),
           msg.attach("pick", plan.id),
           msg.system(
-            `Vote invites sent in FGL to ${listNames(PEOPLE_ORDER.filter((id) => id !== ME))}`,
+            `Vote invites sent in PastThePlan to ${listNames(PEOPLE_ORDER.filter((id) => id !== ME))}`,
           ),
         )
         EARLY_VOTERS.filter((p) => p !== ME).forEach((person, i) =>
