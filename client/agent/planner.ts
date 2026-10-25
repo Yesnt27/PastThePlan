@@ -9,7 +9,7 @@ import { nameOf, normalize } from "./text"
  * from it (shared/cards.py), and this module goes away.
  */
 
-const WEEKEND: Record<Day, string> = {
+export const WEEKEND: Record<Day, string> = {
   Fri: "2026-10-30",
   Sat: "2026-10-31",
   Sun: "2026-11-01",
@@ -20,7 +20,7 @@ const FREE_ON: Record<Day, number> = { Fri: 3, Sat: 5, Sun: 4 }
 
 export const MAJORITY = Math.ceil(GROUP.size / 2)
 
-const AREA_HINTS: [RegExp, string][] = [
+export const AREA_HINTS: [RegExp, string][] = [
   [/\b(food|eat|dinner|lunch|brunch|hungry)\b/, "food"],
   [/\b(outside|outdoors?|park|beach|hike|nature)\b/, "outdoors"],
   [/\b(game|games|bowling|board)\b/, "games"],
@@ -30,7 +30,7 @@ const AREA_HINTS: [RegExp, string][] = [
 
 const DEFAULT_PICKS = ["mini-golf", "bouldering", "karaoke-room"]
 
-const sameActivity = (piece: LorePiece, venue: Venue) =>
+export const sameActivity = (piece: LorePiece, venue: Venue) =>
   normalize(piece.title).includes(normalize(venue.keyword)) ||
   piece.place === venue.venue
 
@@ -94,7 +94,7 @@ export function draftOptions({
   return picks.slice(0, 3).map((venue) => toOption(venue, lore, source))
 }
 
-function toOption(
+export function toOption(
   venue: Venue,
   lore: LorePiece[],
   source?: LorePiece,

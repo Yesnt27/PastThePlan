@@ -26,6 +26,22 @@ import {
 } from "../agent/planner"
 import { listNames } from "../agent/text"
 import { startSync, syncAction } from "./sync"
+
+type KeeperReply = { text: string; draft?: { options: PlanOption[] }; answer?: LoreAnswer }
+/** Lore Keeper on the server. Resolves null when it can't be reached (the caller falls back). */
+async function askKeeper(text: string, sourceLoreId?: string): Promise<KeeperReply | null> {
+  try {
+    const r = await fetch("/api/agents/keeper", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text, sourceLoreId }),
+      signal: AbortSignal.timeout(45000),
+    })
+    return r.ok ? ((await r.json()) as KeeperReply) : null
+  } catch {
+    return null
+  }
+}
 import {
   AREAS,
   GROUP,
@@ -48,6 +64,7 @@ import type {
   PersonId,
   PieceId,
   Plan,
+  PlanOption,
   Profile,
   Quote,
 } from "../data/types"
@@ -461,22 +478,40 @@ function useCreateActions(
       dispatch({ type: "plan/add", plan })
       dispatch({ type: "keeper/busy", busy: "checking" })
 
-      later(1700, () => dispatch({ type: "keeper/busy", busy: "typing" }))
-      later(2500, () => {
+      // Lore Keeper drafts on the server (MCP tools, live weather, sealed limits). The local
+      // planner is the fallback so the book still works offline.
+      const t0 = Date.now()
+      later(1700, () => {
+        if (get().keeperBusy === "checking") dispatch({ type: "keeper/busy", busy: "typing" })
+      })
+      const local = () => {
         const now = get()
         const drafted = draftOptions({ request, lore: now.lore, source })
-        // John's member agent answers "fits / doesn't fit" — the reasons stay private.
         const fitting = drafted.filter((o) => fitsPrivateLimits(now.limits, o))
         const options = fitting.length ? fitting : drafted
+        const intro = source
+          ? `${source.title} is in the lore, so I started there. Here are ${options.length} options for this weekend — checked against everyone’s calendars and private limits.`
+          : `Here are ${options.length} options for this weekend — checked against everyone’s calendars and private limits.`
+        return { options, intro }
+      }
+      askKeeper(request, source?.id)
+        .then((r) => {
+          const opts = r?.draft?.options
+          if (opts && opts.length) return { options: opts, intro: r!.text || local().intro }
+          return local()
+        })
+        .catch(() => local())
+        .then(({ options, intro }) => {
+          later(Math.max(0, 2200 - (Date.now() - t0)), () => publish(options, intro))
+        })
+
+      const publish = (options: PlanOption[], intro: string) => {
         dispatch({
           type: "plan/patch",
           id: plan.id,
           patch: { status: "voting", options },
         })
         dispatch({ type: "keeper/busy", busy: null })
-        const intro = source
-          ? `${source.title} is in the lore, so I started there. Here are ${options.length} options for this weekend — checked against everyone’s calendars and private limits.`
-          : `Here are ${options.length} options for this weekend — checked against everyone’s calendars and private limits.`
         keeperSay(
           msg.agent(
             `${intro}\n${options.map(optionLine).join("\n")}\n0/${GROUP.size} voted.`,
@@ -493,7 +528,7 @@ function useCreateActions(
               recordVote(plan.id, person, p.options[0].id)
           }),
         )
-      })
+      }
     }
 
     function requestLock(planId: string) {
@@ -661,12 +696,18 @@ function useCreateActions(
 
       if (!opts?.sourceLoreId && looksLikeQuestion(text)) {
         dispatch({ type: "keeper/busy", busy: "typing" })
-        later(700, () => {
-          loreAgent.ask(text, { lore: get().lore }).then((answer) => {
+        askKeeper(text)
+          .then(async (r) => {
             dispatch({ type: "keeper/busy", busy: null })
-            keeperSay({ id: uid("m"), kind: "answer", answer })
+            if (r?.answer) {
+              keeperSay({ id: uid("m"), kind: "answer", answer: r.answer })
+            } else if (r?.text) {
+              keeperSay(msg.agent(r.text))
+            } else {
+              const answer = await loreAgent.ask(text, { lore: get().lore })
+              keeperSay({ id: uid("m"), kind: "answer", answer })
+            }
           })
-        })
         return
       }
       startPlan(text, opts?.sourceLoreId)

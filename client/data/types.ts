@@ -62,6 +62,8 @@ export type Limits = {
   notes?: string
   calendar?: "connected" | "not connected" | string
   homeArea?: string
+  /** Days this person can do at all, e.g. weekends only. */
+  days?: ("Fri" | "Sat" | "Sun")[]
 }
 
 export type PlanOption = {

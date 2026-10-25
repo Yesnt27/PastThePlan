@@ -45,7 +45,20 @@ export async function seedGroup(db: Sql, groupId: string, reset = false) {
       values (${groupId}, ${piece.id}, ${j(db, piece)}, ${new Date(now - (i + 1) * 60_000)})`
   for (const m of SEED_AGENT_THREAD)
     await db`insert into fgl_messages (group_id, thread, data) values (${groupId}, ${"agent:john"}, ${j(db, m)})`
-  await putLimits(db, groupId, "john", SEED_LIMITS)
+  // Demo: what each member told their own agent, and calendar busy days (stand-in for iCal busy times).
+  const limits: Record<string, Limits> = {
+    john: SEED_LIMITS,
+    harry: { budget: 50, homeBy: "1:00 am", calendar: "connected" },
+    daniel: { travelMin: 45, calendar: "connected" },
+    sam: { calendar: "not connected" },
+    noah: { budget: 40, notes: "no seafood", calendar: "connected" },
+    ysan: { budget: 20, days: ["Sat", "Sun"], calendar: "not connected" },
+  }
+  const busy: Record<string, string[]> = { harry: ["Fri", "Sun"], noah: ["Fri", "Sun"], daniel: ["Sat"] }
+  for (const id of PEOPLE_ORDER) {
+    await putLimits(db, groupId, id, limits[id] ?? {})
+    if (busy[id]) await putField(db, groupId, id, "busy", busy[id])
+  }
   await bump(db, groupId, "seed")
   return true
 }
@@ -58,6 +71,14 @@ export async function putLimits(db: Sql, groupId: string, person: string, limits
   const s = seal(limits, `${groupId}:${person}:limits`)
   await db`insert into fgl_vault (group_id, person, field, ciphertext, iv, tag)
     values (${groupId}, ${person}, ${"limits"}, ${s.ciphertext}, ${s.iv}, ${s.tag})
+    on conflict (group_id, person, field) do update
+    set ciphertext = excluded.ciphertext, iv = excluded.iv, tag = excluded.tag, updated_at = now()`
+}
+
+export async function putField(db: Sql, groupId: string, person: string, field: string, value: unknown) {
+  const s = seal(value, `${groupId}:${person}:${field}`)
+  await db`insert into fgl_vault (group_id, person, field, ciphertext, iv, tag)
+    values (${groupId}, ${person}, ${field}, ${s.ciphertext}, ${s.iv}, ${s.tag})
     on conflict (group_id, person, field) do update
     set ciphertext = excluded.ciphertext, iv = excluded.iv, tag = excluded.tag, updated_at = now()`
 }
