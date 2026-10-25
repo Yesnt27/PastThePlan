@@ -130,8 +130,12 @@ export function Board() {
     [lore, profiles],
   )
   if (reconnect) tiles.push({ kind: "nudge", r: reconnect })
-  // A memory from this day in an earlier year, and (only for you) a saved spot.
-  onThisDay(lore).slice(0, 1).forEach((piece) => tiles.push({ kind: "onthisday", piece }))
+  // A memory from this day in an earlier year (unless your nudge is already built on it),
+  // and (only for you) a saved spot.
+  onThisDay(lore)
+    .filter((piece) => piece.id !== reconnect?.memory.id)
+    .slice(0, 1)
+    .forEach((piece) => tiles.push({ kind: "onthisday", piece }))
   if (drifters(lore).some((d) => d.person === ME) && open.length) tiles.push({ kind: "spot" })
   if (open.length) open.forEach((plan) => tiles.push({ kind: "plan", plan }))
   else tiles.push({ kind: "cta" })
