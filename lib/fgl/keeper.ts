@@ -68,7 +68,7 @@ export async function runKeeper(input: { text: string; sourceLoreId?: string; me
       prompt: `${input.me} says: ${input.text}${input.sourceLoreId ? `\n(Context: they started from lore piece id "${input.sourceLoreId}".)` : ""}`,
       tools,
       stopWhen: stepCountIs(4),
-      maxOutputTokens: 400,
+      maxOutputTokens: 2000,
     })
     const reply: KeeperReply = { text: res.text.trim(), via: remote ? "mcp" : "local", toolCalls: [] }
     for (const step of res.steps)
