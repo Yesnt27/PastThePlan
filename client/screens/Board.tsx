@@ -585,9 +585,9 @@ function ScribeDrafts({ drafts, onDone }: { drafts: Draft[]; onDone: (id: string
               </p>
             ))}
             {d.kind === "lore_candidate" ? (
-              <div className="mt-2 flex gap-1.5">
-                <button type="button" onClick={() => act(d.id, "accept")} className="h-8 flex-1 rounded-[10px] bg-ink px-2 text-[13px] font-bold text-white">Add to lore</button>
-                <button type="button" onClick={() => act(d.id, "dismiss")} className="h-8 rounded-[10px] border-[1.5px] border-line bg-white px-2 text-[13px] font-semibold text-ink">Not now</button>
+              <div className="mt-2 flex flex-col items-stretch gap-1">
+                <button type="button" onClick={() => act(d.id, "accept")} className="h-8 w-full whitespace-nowrap rounded-[10px] bg-ink px-2 text-[13px] font-bold text-white">Add to lore</button>
+                <button type="button" onClick={() => act(d.id, "dismiss")} className="h-7 w-full whitespace-nowrap text-[12px] font-semibold text-muted underline">Not now</button>
               </div>
             ) : (
               <button type="button" onClick={() => act(d.id, "dismiss")} className="mt-1.5 text-[12px] font-semibold text-muted underline">Noted</button>
