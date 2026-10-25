@@ -91,6 +91,20 @@ export type PlanStatus =
   | "done"
   | "cancelled"
 
+export type PlanMeta = {
+  /** Ideas sent to everyone's agent, and how many passed (any "no" drops an idea). */
+  checked: number
+  passed: number
+  /** Members whose agent answered privately. */
+  agents: number
+  /** Days that work for a majority (and for anyone being re-included), with free counts. */
+  windows: { day: Day; free: number }[]
+  /** How many people the plan was shaped around because they've missed recent hangouts. Never who. */
+  reinclude: number
+  requestedBy?: string
+  askedOn?: string
+}
+
 export type Plan = {
   id: string
   request: string
@@ -103,6 +117,7 @@ export type Plan = {
   coming: PersonId[]
   recapStory?: string
   loreId?: string
+  meta?: PlanMeta
 }
 
 export type QuotedLine = {

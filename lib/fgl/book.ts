@@ -4,7 +4,10 @@ import { AREAS, GROUP, TODAY, VENUES, type Venue } from "@/client/data/seed"
 import type { Day, LorePiece, PlanOption } from "@/client/data/types"
 import { dayName } from "@/client/lib/dates"
 import { sql } from "@/lib/server/db"
-import { availability, checkOptions, loadHeld, privateNudges } from "./member"
+import { availability, checkOptions, isFree, loadHeld, privateNudges } from "./member"
+import { drifters, repeatedAreas } from "./rekindle"
+import { applyActions } from "@/lib/server/state"
+import type { PlanMeta } from "@/client/data/types"
 import { describe, weekendWeather } from "./world"
 
 /** Extra candidates the catalogue in seed.ts doesn't have. */
@@ -42,6 +45,7 @@ export async function areaStats(groupId: string) {
 
 export type PlanDraft = {
   options: PlanOption[]
+  meta: PlanMeta
   considered: number
   didNotFit: number
   availability: Record<string, number>
@@ -80,7 +84,14 @@ export async function planOptions(groupId: string, request: string, sourceLoreId
 
   const fit = checkOptions(held, pool.map((p) => p.o))
   const fitById = Object.fromEntries(fit.map((f) => [f.optionId, f]))
-  const passing = pool.filter(({ o }) => fitById[o.id].fitsEveryone && avail[o.day] >= MAJORITY)
+  // Rekindler: anyone who has missed most recent hangouts must be able to come to every option.
+  const drift = drifters(lore).map((d) => d.person)
+  const driftHeld = held.filter((h) => drift.includes(h.person))
+  const worksForDrifters = (day: Day) => driftHeld.every((h) => isFree(h, day))
+  const fitsAll = pool.filter(({ o }) => fitById[o.id].fitsEveryone)
+  let passing = fitsAll.filter(({ o }) => avail[o.day] >= MAJORITY && worksForDrifters(o.day))
+  if (passing.length < 3) passing = fitsAll.filter(({ o }) => avail[o.day] >= MAJORITY) // never strand the plan
+  const repeats = repeatedAreas(lore)
 
   const score = ({ v, o }: { v: Venue; o: PlanOption }) => {
     const done = lore.filter((p) => sameActivity(p, v)).length
@@ -90,7 +101,7 @@ export async function planOptions(groupId: string, request: string, sourceLoreId
     let s = 30 * (avail[o.day] / GROUP.size)
     s += 15 * (indoor(v) ? 1 : 1 - wet)
     s += 15 * Math.max(0, 1 - o.maxTravelMin / 45)
-    s += 15 * (done ? 1 / (1 + done) : 1) - (recentSameArea >= 3 ? 6 : 0)
+    s += 15 * (done ? 1 / (1 + done) : 1) - (recentSameArea >= 3 || repeats.includes(v.area) ? 6 : 0)
     s += 10 * (hinted && v.area === hinted ? 1 : 0) + (source && (sameActivity(source, v) || v.id === `again-${source.id}`) ? 40 : 0)
     s += 5 * (o.price === "Free" ? 1 : o.price === "$" ? 0.6 : 0.2) + (cheap && o.price !== "$$" ? 5 : 0)
     return s
@@ -105,14 +116,45 @@ export async function planOptions(groupId: string, request: string, sourceLoreId
   for (const c of ranked) if (picks.length < 3 && !picks.includes(c)) picks.push(c)
 
   const didNotFit = pool.filter(({ o }) => !fitById[o.id].fitsEveryone).length
+  const windows = days
+    .filter((d) => avail[d] >= MAJORITY && worksForDrifters(d))
+    .map((d) => ({ day: d, free: avail[d] }))
+  const meta: PlanMeta = {
+    checked: pool.length,
+    passed: fitsAll.length,
+    agents: held.length,
+    windows,
+    reinclude: driftHeld.length,
+    askedOn: TODAY,
+  }
+  if (driftHeld.length && picks.length) await saveSpot(groupId, driftHeld.map((h) => h.person))
   return {
     options: picks.map((p) => p.o),
+    meta,
     considered: pool.length,
     didNotFit,
     availability: avail,
     weather,
     note: picks.length ? "" : "Nothing fits everyone this weekend.",
   }
+}
+
+/** The re-included person hears it from their own agent, privately. Once per weekend. */
+async function saveSpot(groupId: string, people: string[]) {
+  const weekend = "2026-10-31"
+  for (const person of people)
+    await applyActions(groupId, person, [
+      {
+        type: "agent/push",
+        messages: [
+          {
+            id: `rekindle-${weekend}-${person}`,
+            kind: "agent-card",
+            text: "Saved you a spot. This weekend’s options were all picked to work for you: your days, your budget, your travel. Nobody else knows why, and I didn’t tell anyone you’ve missed a few.",
+          },
+        ],
+      },
+    ])
 }
 
 /** “Why not the rooftop bar?”: a yes/no about one idea, never a reason or a name. */

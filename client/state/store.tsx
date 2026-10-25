@@ -27,7 +27,7 @@ import {
 import { listNames } from "../agent/text"
 import { startSync, syncAction } from "./sync"
 
-type KeeperReply = { text: string; draft?: { options: PlanOption[] }; answer?: LoreAnswer }
+type KeeperReply = { text: string; draft?: { options: PlanOption[]; meta: PlanMeta }; answer?: LoreAnswer }
 /** Lore Keeper on the server. Resolves null when it can't be reached (the caller falls back). */
 async function askKeeper(text: string, sourceLoreId?: string): Promise<KeeperReply | null> {
   try {
@@ -64,6 +64,7 @@ import type {
   PersonId,
   PieceId,
   Plan,
+  PlanMeta,
   PlanOption,
   Profile,
   Quote,
@@ -497,19 +498,27 @@ function useCreateActions(
       askKeeper(request, source?.id)
         .then((r) => {
           const opts = r?.draft?.options
-          if (opts && opts.length) return { options: opts, intro: r!.text || local().intro }
-          return local()
+          if (opts && opts.length)
+            return { options: opts, intro: r!.text || local().intro, meta: r!.draft!.meta }
+          return { ...local(), meta: undefined }
         })
-        .catch(() => local())
-        .then(({ options, intro }) => {
-          later(Math.max(0, 2200 - (Date.now() - t0)), () => publish(options, intro))
+        .catch(() => ({ ...local(), meta: undefined }))
+        .then(({ options, intro, meta }) => {
+          later(Math.max(0, 2200 - (Date.now() - t0)), () => publish(options, intro, meta))
         })
 
-      const publish = (options: PlanOption[], intro: string) => {
+      const publish = (options: PlanOption[], intro: string, meta?: PlanMeta) => {
+        const summary = meta
+          ? `\nChecked ${meta.checked} ideas with ${meta.agents} private agents · ${meta.passed} fit everyone` +
+            (meta.reinclude
+              ? ` · shaped around ${meta.reinclude === 1 ? "someone" : `${meta.reinclude} people`} who’s missed a few lately`
+              : "")
+          : ""
+        intro = intro + summary
         dispatch({
           type: "plan/patch",
           id: plan.id,
-          patch: { status: "voting", options },
+          patch: { status: "voting", options, ...(meta ? { meta: { ...meta, requestedBy: ME } } : {}) },
         })
         dispatch({ type: "keeper/busy", busy: null })
         keeperSay(

@@ -8,7 +8,10 @@ import {
 } from "react"
 import { Link, useNavigate, useSearchParams } from "react-router"
 import { lockedOption, votedCount } from "../agent/planner"
-import { GROUP, PEOPLE_ORDER, TODAY } from "../data/seed"
+import { GROUP, ME, PEOPLE_ORDER, TODAY } from "../data/seed"
+import { drifters, onThisDay } from "@/lib/fgl/rekindle"
+import { fmtShort } from "../lib/dates"
+import { nameOf } from "../agent/text"
 import type { LorePiece, PersonId, Plan, Tint } from "../data/types"
 import { relativeDays } from "../lib/dates"
 import { clusters, type Cluster, type Lens } from "../state/selectors"
@@ -26,12 +29,17 @@ const LENSES: { id: Lens; label: string }[] = [
 type Tile = { kind: "cluster"; cluster: Cluster } | {
   kind: "plan"
   plan: Plan
-} | { kind: "cta" } | { kind: "free"; id: string }
+} | { kind: "cta" } | { kind: "free"; id: string } | {
+  kind: "onthisday"
+  piece: LorePiece
+} | { kind: "spot" } | { kind: "drafts" }
 
 /** Rough heights so tiles can be dealt into two columns, row by row, like the board comp. */
 const estimate = (t: Tile) => {
   if (t.kind === "free") return 100
-  if (t.kind === "plan" || t.kind === "cta") return 170
+  if (t.kind === "plan" || t.kind === "cta" || t.kind === "spot") return 170
+  if (t.kind === "onthisday") return 250
+  if (t.kind === "drafts") return 200
   const n = Math.min(t.cluster.pieces.length, 6) || 1
   return 48 + Math.ceil(n / 2) * 104
 }
@@ -86,10 +94,31 @@ export function Board() {
     return () => clearTimeout(t)
   }, [highlight, clearHighlight, lens])
 
+  // Scribe: open drafts from the group chat, plus a sync on open (the server throttles it).
+  const [drafts, setDrafts] = useState<Draft[]>([])
+  useEffect(() => {
+    let live = true
+    fetch("/api/scribe", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : { drafts: [] }))
+      .then((j) => live && setDrafts(j.drafts ?? []))
+      .catch(() => {})
+    fetch("/api/scribe", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => live && j?.drafts && setDrafts(j.drafts))
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [])
+
   const groups = clusters(visible, lens, areas).filter(
     (c) => lens !== "people" || who.length === 0 || c.pieces.length,
   )
   const tiles: Tile[] = []
+  // Rekindler: a memory from this day in an earlier year, and (only for you) a saved spot.
+  onThisDay(lore).slice(0, 1).forEach((piece) => tiles.push({ kind: "onthisday", piece }))
+  if (drifters(lore).some((d) => d.person === ME) && open.length) tiles.push({ kind: "spot" })
+  if (drafts.length) tiles.push({ kind: "drafts" })
   if (lens === "activity") {
     groups.forEach((c) => tiles.push({ kind: "cluster", cluster: c }))
     if (open.length) open.forEach((plan) => tiles.push({ kind: "plan", plan }))
@@ -184,6 +213,12 @@ export function Board() {
                           <PlanCard key={t.plan.id} plan={t.plan} />
                         ) : t.kind === "cta" ? (
                           <PlanPrompt key="cta" />
+                        ) : t.kind === "onthisday" ? (
+                          <OnThisDay key={`otd-${t.piece.id}`} piece={t.piece} />
+                        ) : t.kind === "spot" ? (
+                          <SavedSpot key="spot" />
+                        ) : t.kind === "drafts" ? (
+                          <ScribeDrafts key="drafts" drafts={drafts} onDone={(id) => setDrafts((d) => d.filter((x) => x.id !== id))} />
                         ) : (
                           <FreeSpot key={t.id} />
                         ),
@@ -484,6 +519,97 @@ function PlanCard({ plan }: { plan: Plan }) {
         </>
       )}
     </article>
+  )
+}
+
+/** Rekindler: “one year ago today”, with the saved quote and a way to do it again. */
+function OnThisDay({ piece }: { piece: LorePiece }) {
+  const years = Number(TODAY.slice(0, 4)) - Number(piece.date.slice(0, 4))
+  const quote = piece.quotes[0]
+  return (
+    <article className="relative animate-pop-in overflow-hidden rounded-[22px] border-2 border-dashed border-plezi bg-agent p-3">
+      <Link to={`/lore/${piece.id}`} className="absolute inset-0 rounded-[22px]" aria-label={`Open ${piece.title}`} />
+      <p className="text-xs font-extrabold uppercase tracking-[0.04em] text-ink">
+        {years === 1 ? "One year ago today" : `${years} years ago today`}
+      </p>
+      {piece.photos[0] ? (
+        <img src={piece.photos[0]} alt="" className="mt-2 aspect-[4/3] w-full rounded-xl border-[1.5px] border-ink object-cover" />
+      ) : null}
+      <p className="mt-2 text-[15px] font-bold leading-tight text-ink">{piece.title}</p>
+      <p className="text-[12.5px] text-muted">{fmtShort(piece.date)} · {piece.place}</p>
+      {quote ? (
+        <p className="mt-1.5 font-display text-[17px] leading-tight text-ink">
+          “{quote.text}” <span className="text-muted">— {nameOf(quote.by)}</span>
+        </p>
+      ) : null}
+      <Link
+        to={`/keeper?again=${piece.id}`}
+        className="relative z-10 mt-2.5 flex h-9 w-full items-center justify-center rounded-[10px] bg-ink px-3 text-sm font-bold text-white"
+      >
+        Do it again
+      </Link>
+    </article>
+  )
+}
+
+type Draft = {
+  id: string
+  kind: string
+  title: string
+  date?: string
+  place?: string
+  note?: string
+  quotes?: { text: string; by: string }[]
+}
+
+/** Scribe drafts are agent-made, so they stay dashed-blue until a person accepts them. */
+function ScribeDrafts({ drafts, onDone }: { drafts: Draft[]; onDone: (id: string) => void }) {
+  const act = async (id: string, what: "accept" | "dismiss") => {
+    onDone(id)
+    await fetch("/api/scribe", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ [what]: id }) }).catch(() => {})
+  }
+  const shown = drafts.slice(0, 3)
+  return (
+    <article className="animate-pop-in rounded-[22px] border-2 border-dashed border-plezi bg-agent p-3">
+      <p className="text-xs font-extrabold uppercase tracking-[0.04em] text-ink">Scribe found · from #plans</p>
+      <ul className="mt-1.5 flex flex-col gap-2.5">
+        {shown.map((d) => (
+          <li key={d.id} className="rounded-xl border-[1.5px] border-dashed border-plezi bg-white/70 p-2">
+            <p className="text-[11px] font-bold uppercase tracking-[0.04em] text-plezi">{d.kind.replace("_", " ")}</p>
+            <p className="text-[14px] font-bold leading-tight text-ink">{d.title}</p>
+            {d.date || d.place ? <p className="text-[12px] text-muted">{[d.date ? fmtShort(d.date) : "", d.place].filter(Boolean).join(" · ")}</p> : null}
+            {d.note ? <p className="text-[12px] leading-snug text-muted">{d.note}</p> : null}
+            {(d.quotes ?? []).slice(0, 2).map((q, i) => (
+              <p key={i} className="mt-1 font-display text-[16px] leading-tight text-ink">
+                “{q.text}” <span className="text-muted">— {q.by}</span>
+              </p>
+            ))}
+            {d.kind === "lore_candidate" ? (
+              <div className="mt-2 flex gap-1.5">
+                <button type="button" onClick={() => act(d.id, "accept")} className="h-8 flex-1 rounded-[10px] bg-ink px-2 text-[13px] font-bold text-white">Add to lore</button>
+                <button type="button" onClick={() => act(d.id, "dismiss")} className="h-8 rounded-[10px] border-[1.5px] border-line bg-white px-2 text-[13px] font-semibold text-ink">Not now</button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => act(d.id, "dismiss")} className="mt-1.5 text-[12px] font-semibold text-muted underline">Noted</button>
+            )}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-[11.5px] leading-snug text-muted">Quotes are checked word for word against the messages. Only people who linked with /iam are read.</p>
+    </article>
+  )
+}
+
+/** Only the re-included person sees this, in their own book. Nobody else knows. */
+function SavedSpot() {
+  return (
+    <Link to="/me/agent" className="block animate-pop-in rounded-[22px] border-2 border-dashed border-plezi bg-agent p-3">
+      <p className="text-xs font-extrabold uppercase tracking-[0.04em] text-ink">From your agent · only you</p>
+      <p className="mt-1 text-[15px] font-bold leading-tight text-ink">Saved you a spot</p>
+      <p className="mt-1 text-xs leading-snug text-muted">
+        This weekend’s options were picked to work for you. Nobody else knows why.
+      </p>
+    </Link>
   )
 }
 

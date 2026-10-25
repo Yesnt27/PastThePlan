@@ -2,7 +2,8 @@ import { after, NextResponse } from "next/server"
 import { parseLimits, summarizeLimits } from "@/client/agent/memberAgent"
 import type { Limits, Plan } from "@/client/data/types"
 import { editOriginal } from "@/lib/discord/api"
-import { voteCard } from "@/lib/discord/cards"
+import { recapPost, voteCard } from "@/lib/discord/cards"
+import { MAJORITY, tally } from "@/client/agent/planner"
 import { verifyDiscord } from "@/lib/discord/verify"
 import { askLore, planOptions } from "@/lib/fgl/book"
 import { runKeeper } from "@/lib/fgl/keeper"
@@ -60,8 +61,8 @@ export async function POST(req: Request) {
     if (name === "iam") {
       const who = opt("member")!
       await sql()`update fgl_people set discord_id = null where group_id = ${GROUP_ID} and discord_id = ${discordId}`
-      await sql()`update fgl_people set discord_id = ${discordId} where group_id = ${GROUP_ID} and id = ${who}`
-      return reply(`Linked. Your votes here count as ${who[0].toUpperCase() + who.slice(1)} in the book.`, true)
+      await sql()`update fgl_people set discord_id = ${discordId}, consent_chat = true where group_id = ${GROUP_ID} and id = ${who}`
+      return reply(`Linked. Your votes here count as ${who[0].toUpperCase() + who.slice(1)} in the book, and Scribe may read your messages in enabled channels to draft lore (quotes word for word, nothing private). /iam again to switch.`, true)
     }
 
     if (name === "limits") {
@@ -91,6 +92,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ type: 5 })
     }
 
+    if (name === "recap") {
+      const story = (opt("story") ?? "").trim()
+      const me = await personFor(discordId)
+      const r = await sql()`select data from fgl_plans where group_id = ${GROUP_ID} and data->>'status' = 'locked' order by updated_at desc limit 1`
+      const plan = r[0]?.data as Plan | undefined
+      if (!plan) return reply("There’s no locked plan to recap yet.", true)
+      const option = plan.options.find((o) => o.id === plan.lockedOptionId)
+      await applyActions(GROUP_ID, me ?? "john", [{ type: "plan/patch", id: plan.id, patch: { recapStory: story } }])
+      // Quotes are copied exactly: anything in quotation marks, attributed if "— name" follows.
+      const quotes = [...story.matchAll(/[“"]([^”"]{3,200})[”"](?:\s*[—-]\s*([A-Za-z]+))?/g)].map((m) => ({ text: m[1], by: m[2] ?? (me ? me[0].toUpperCase() + me.slice(1) : "someone") }))
+      return NextResponse.json({ type: 4, data: recapPost(option?.title ?? "the plan", story, quotes) })
+    }
+
     if (name === "plan") {
       const request = opt("request") || "something this weekend"
       const me = await personFor(discordId)
@@ -102,13 +116,13 @@ export async function POST(req: Request) {
             return
           }
           let intro = ""
-          let options = (await planOptions(GROUP_ID, request)).options
+          let draft = await planOptions(GROUP_ID, request)
           try {
             const r = await runKeeper({ text: request, me: me ?? "someone", base })
-            if (r.draft?.options?.length) options = r.draft.options
+            if (r.draft?.options?.length) draft = r.draft
             if (r.text && !leaks(r.text)) intro = r.text
           } catch { /* deterministic draft already in hand */ }
-          const plan: Plan = { id: `plan-${Date.now().toString(36)}`, request, status: "voting", options, votes: {}, majorityAnnounced: false, coming: [] }
+          const plan: Plan = { id: `plan-${Date.now().toString(36)}`, request, status: "voting", options: draft.options, votes: {}, majorityAnnounced: false, coming: [], meta: { ...draft.meta, requestedBy: me ?? undefined } }
           await applyActions(GROUP_ID, me ?? "john", [{ type: "plan/add", plan }])
           await editOriginal(i.token, { content: me ? "" : "Tip: run /iam so your vote counts as you.", ...voteCard(plan, intro) })
         } catch (e) {
@@ -130,6 +144,21 @@ export async function POST(req: Request) {
     await applyActions(GROUP_ID, me, [{ type: "plan/vote", id: planId, person: me, optionId: optionId === "none" ? "" : optionId }])
     const updated = (await planById(planId))!
     return NextResponse.json({ type: 7, data: voteCard(updated) })
+  }
+
+  // Lock from Discord once a majority exists
+  if (i.type === 3 && i.data?.custom_id?.startsWith("lock:")) {
+    const planId = i.data.custom_id.split(":")[1]
+    const me = await personFor(discordId)
+    if (!me) return reply("Run /iam first.", true)
+    const plan = await planById(planId)
+    if (!plan || plan.status !== "voting") return reply("This plan isn’t open for locking.", true)
+    const counts = tally(plan)
+    const win = [...plan.options].sort((a, b) => (counts[b.id] ?? 0) - (counts[a.id] ?? 0))[0]
+    if (!win || (counts[win.id] ?? 0) < MAJORITY) return reply("No majority yet.", true)
+    const coming = Object.entries(plan.votes).filter(([, v]) => v).map(([p]) => p)
+    await applyActions(GROUP_ID, me, [{ type: "plan/patch", id: planId, patch: { status: "locked", lockedOptionId: win.id, coming } }])
+    return NextResponse.json({ type: 7, data: voteCard((await planById(planId))!) })
   }
 
   // Modal: /limits

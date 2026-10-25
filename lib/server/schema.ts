@@ -59,6 +59,31 @@ create table if not exists fgl_vault (
   updated_at timestamptz not null default now(),
   primary key (group_id, person, field)
 );
+create table if not exists fgl_kv (
+  key text primary key,
+  value jsonb not null,
+  updated_at timestamptz not null default now()
+);
+create table if not exists fgl_chat (
+  id text primary key,
+  group_id text not null references fgl_groups(id) on delete cascade,
+  channel text not null,
+  person text not null,
+  ts timestamptz not null,
+  text text not null
+);
+create table if not exists fgl_drafts (
+  id text primary key,
+  group_id text not null references fgl_groups(id) on delete cascade,
+  kind text not null,
+  payload jsonb not null,
+  cites text[] not null default '{}',
+  status text not null default 'new',
+  created_at timestamptz not null default now()
+);
+alter table fgl_kv enable row level security;
+alter table fgl_chat enable row level security;
+alter table fgl_drafts enable row level security;
 create table if not exists fgl_events (
   id bigserial primary key,
   group_id text not null,
