@@ -19,6 +19,7 @@ import { useActions, useStore } from "../state/store"
 import { Icon } from "../ui/Icon"
 import { Button, EmptyNote, NameTag, Photo, TINT_BG } from "../ui/kit"
 import { Sheet } from "../ui/Sheet"
+import { Playground } from "./Playground"
 
 const LENSES: { id: Lens; label: string }[] = [
   { id: "activity", label: "Activity" },
@@ -88,8 +89,10 @@ export function Board() {
   const canvas = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!highlight) return
-    const el = canvas.current?.querySelector(`[data-piece="${highlight}"]`)
-    el?.scrollIntoView({ block: "center", behavior: "smooth" })
+    if (canvas.current) {
+      const el = canvas.current.querySelector(`[data-piece="${highlight}"]`)
+      el?.scrollIntoView({ block: "center", behavior: "smooth" })
+    }
     const t = setTimeout(clearHighlight, 3200)
     return () => clearTimeout(t)
   }, [highlight, clearHighlight, lens])
@@ -118,17 +121,27 @@ export function Board() {
   // Rekindler: a memory from this day in an earlier year, and (only for you) a saved spot.
   onThisDay(lore).slice(0, 1).forEach((piece) => tiles.push({ kind: "onthisday", piece }))
   if (drifters(lore).some((d) => d.person === ME) && open.length) tiles.push({ kind: "spot" })
+  if (open.length) open.forEach((plan) => tiles.push({ kind: "plan", plan }))
+  else tiles.push({ kind: "cta" })
   if (drafts.length) tiles.push({ kind: "drafts" })
-  if (lens === "activity") {
-    groups.forEach((c) => tiles.push({ kind: "cluster", cluster: c }))
-    if (open.length) open.forEach((plan) => tiles.push({ kind: "plan", plan }))
-    else tiles.push({ kind: "cta" })
-    tiles.push({ kind: "free", id: "free-1" })
-  } else {
-    open.forEach((plan) => tiles.push({ kind: "plan", plan }))
-    groups.forEach((c) => tiles.push({ kind: "cluster", cluster: c }))
-  }
-  const cols = masonry(tiles)
+  const hubCols = masonry(tiles)
+
+  const renderTile = (t: Tile) =>
+    t.kind === "plan" ? (
+      <PlanCard key={t.plan.id} plan={t.plan} />
+    ) : t.kind === "cta" ? (
+      <PlanPrompt key="cta" />
+    ) : t.kind === "onthisday" ? (
+      <OnThisDay key={`otd-${t.piece.id}`} piece={t.piece} />
+    ) : t.kind === "spot" ? (
+      <SavedSpot key="spot" />
+    ) : t.kind === "drafts" ? (
+      <ScribeDrafts key="drafts" drafts={drafts} onDone={(id) => setDrafts((d) => d.filter((x) => x.id !== id))} />
+    ) : t.kind === "cluster" ? (
+      <ClusterCard key={t.cluster.key} cluster={t.cluster} lens={lens} highlight={highlight} onFocus={(id) => setParam("area", id)} />
+    ) : (
+      <FreeSpot key={t.id} />
+    )
 
   const focused = areaFocus
     ? groups.find((g) => g.areaId === areaFocus)
@@ -185,56 +198,40 @@ export function Board() {
       <DragLayer>
         {(drag) => (
           <>
-            <div
-              ref={canvas}
-              className="no-scrollbar relative min-h-0 flex-1 overflow-y-auto overscroll-contain"
-              data-canvas
-            >
-              {focused ? (
+            {focused ? (
+              <div
+                ref={canvas}
+                className="no-scrollbar relative min-h-0 flex-1 overflow-y-auto overscroll-contain"
+              >
                 <AreaFocus
                   cluster={focused}
                   highlight={highlight}
                   onBack={() => setParam("area")}
                 />
-              ) : (
-                <div className="grid grid-cols-2 items-start gap-3.5 pb-6 pl-6 pr-3.5 pt-3">
-                  {cols.map((col, i) => (
-                    <div key={i} className="flex min-w-0 flex-col gap-3.5">
-                      {col.map((t) =>
-                        t.kind === "cluster" ? (
-                          <ClusterCard
-                            key={t.cluster.key}
-                            cluster={t.cluster}
-                            lens={lens}
-                            highlight={highlight}
-                            onFocus={(id) => setParam("area", id)}
-                          />
-                        ) : t.kind === "plan" ? (
-                          <PlanCard key={t.plan.id} plan={t.plan} />
-                        ) : t.kind === "cta" ? (
-                          <PlanPrompt key="cta" />
-                        ) : t.kind === "onthisday" ? (
-                          <OnThisDay key={`otd-${t.piece.id}`} piece={t.piece} />
-                        ) : t.kind === "spot" ? (
-                          <SavedSpot key="spot" />
-                        ) : t.kind === "drafts" ? (
-                          <ScribeDrafts key="drafts" drafts={drafts} onDone={(id) => setDrafts((d) => d.filter((x) => x.id !== id))} />
-                        ) : (
-                          <FreeSpot key={t.id} />
-                        ),
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-              {visible.length === 0 && (
-                <div className="px-6 pb-6">
-                  <EmptyNote>
-                    No lore has all of those people in it yet.
-                  </EmptyNote>
-                </div>
-              )}
-            </div>
+              </div>
+            ) : (
+              <Playground
+                key={lens}
+                lens={lens}
+                groups={groups}
+                highlight={highlight}
+                onIsland={(id) => setParam("area", id)}
+                hub={
+                  <div className="grid grid-cols-2 items-start gap-3.5">
+                    {hubCols.map((col, i) => (
+                      <div key={i} className="flex min-w-0 flex-col gap-3.5">
+                        {col.map(renderTile)}
+                      </div>
+                    ))}
+                  </div>
+                }
+              />
+            )}
+            {visible.length === 0 && (
+              <div className="px-6 pb-2">
+                <EmptyNote>No lore has all of those people in it yet.</EmptyNote>
+              </div>
+            )}
             <div className="flex shrink-0 justify-center px-5 pb-1 pt-2">
               <button
                 type="button"
@@ -249,7 +246,7 @@ export function Board() {
                 <span className="grid size-6 place-items-center rounded-md bg-paper">
                   <Icon name="plus" size={16} />
                 </span>
-                Drag “New lore” onto an empty spot
+                Drag “New lore” onto the board
               </button>
             </div>
           </>

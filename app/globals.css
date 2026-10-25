@@ -78,12 +78,12 @@
     display: none;
   }
 
-  [data-dragging="true"] [data-drop] {
+  [data-dragging="true"] [data-drop]:not([data-piece-key]):not([data-canvas]) {
     outline: 2px dashed var(--color-plezi);
     outline-offset: 3px;
   }
 
-  [data-dragging="true"] [data-drop][data-over="true"] {
+  [data-dragging="true"] [data-drop][data-over="true"]:not([data-piece-key]):not([data-canvas]) {
     outline-width: 3px;
     outline-style: solid;
   }
